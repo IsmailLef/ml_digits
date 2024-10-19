@@ -18,13 +18,13 @@ void Model::addLayers(int layerLength, int nbLayers) {
     float *prevActivations = nullptr;
     float prevLayerLength = TOTAL_PIXELS;
     for (int i = 0; i < nbLayers; i++) {
-        Layer *layer = new Layer(layerLength, prevLayerLength, prevActivations);
-        layers.push_back(layer);
-        prevActivations = layer->activations;
-        prevLayerLength = layer->layerLength;
+        Layer layer(layerLength, prevLayerLength, prevActivations);
+        layers.push_back(&layer);
+        prevActivations = layer.activations;
+        prevLayerLength = layer.layerLength;
     }
-    Layer *outputLayer = new Layer(OUTPUT_LAYER, prevLayerLength, prevActivations);
-    layers.push_back(outputLayer);
+    Layer outputLayer(OUTPUT_LAYER, prevLayerLength, prevActivations);
+    layers.push_back(&outputLayer);
 }
 
 void Model::computeLayers(float *inputLayer) {
@@ -57,20 +57,20 @@ int main(int argc, char *argv[]) {
 
     Model ml_model;
     ml_model.addLayers(nbNeurons, nbLayers);
-
+    
     float expectedOutput;
     float *currentInput; 
-    for (long i = 0; i < DATA_LIMIT; i++) {
-        expectedOutput = inputLayer[0][0];
-        currentInput = &(inputLayer[0][1]);
+    for (long i = 0; i < 1; i++) {
+        expectedOutput = inputLayer[i][0];
+        currentInput = &(inputLayer[i][1]);
         // cout << "expected " << expectedOutput << endl;
-        // cout << "current " << currentInput[0];
+        // cout << "current " << currentInput[0] << endl;
         ml_model.computeLayers(currentInput);
-        for (int j = 0; j < 10; j++)
-            cout << ml_model.layers.at(2)->activations[j] << endl;
     }
 
-
+    for (long i=0; i<DATA_LIMIT; i++) {
+        delete[] inputLayer[i];
+    }
      
     return EXIT_SUCCESS;
 }

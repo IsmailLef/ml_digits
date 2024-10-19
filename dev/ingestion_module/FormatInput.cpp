@@ -16,7 +16,7 @@ int formatInput(string fileName, float *inputLayer[DATA_LIMIT]) {
     while (getline(file, line) && dataLine < 10000) {
         stringstream ss(line);
         string activation;
-        inputLayer[dataLine] = (float *) malloc(TOTAL_PIXELS*sizeof(float));
+        inputLayer[dataLine] = new float[TOTAL_PIXELS];
 
         getline(ss, activation, ',');
         inputLayer[dataLine][0] = stoi(activation);
