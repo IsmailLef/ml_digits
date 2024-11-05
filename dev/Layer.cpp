@@ -6,109 +6,195 @@ using namespace std;
 #include <cstring>
 #include <iostream>
 #include <cmath>
+#include <random>
+#include <ctime>
+#include <algorithm>
+#include "ingestion_module/FormatInput.hpp"
+
+#define LEARNING_RATE 0.01
 
 class Layer
 {
 public:
-    Layer(int layerLength, int prevLayerLength, float *prevActivations);
-    Layer(Layer &layer);
+    Layer(int layerLength, int prevLayerLength, double *prevActivations);
+    Layer(const Layer &other);
     Layer(Layer &&layer);
-    Layer &operator=(const Layer& other);
+    Layer& operator=(Layer &layer);
     ~Layer();
-    float *activations;
-    float *biases;
-    float **weights;
+    double *activations;
+    double *derivActivations;
+    double *biases;
+    double **weights;
+    double **gradientWeight;
+    double *gradientBiases;
     int layerLength;
-    void computeActivations(const float *prevActivations, int prevLayerLength);
+    int prevLayerLength;
+    void computeActivations(const double *prevActivations);
+    void computeGradient(Layer &prevLayer, Layer &nextLayer, int expectedOutput);
+    double getCostDerivActivations(Layer &nextLayer, int i);
+    double getCostDerivActivations_forOutputLayer(int i, int expectedOutput);
+    void updateWeightsBiases(int batchSize);
 };
 
 // Constructor
-Layer::Layer(int length, int prevLayerLength, float *prevActivations) : layerLength(length)
+Layer::Layer(int length, int prevLength, double *prevActivations) : layerLength(length), prevLayerLength(prevLength)
 {
-    biases = new float[length];
-    weights = (float **) calloc(length, sizeof(float *));
-    weights[0] = new float[prevLayerLength];
-    biases[0] = (float) (rand()%10);
-    for (int k = 0; k < prevLayerLength; k++)
-        weights[0][k] = (float) (rand()%100) / 100.0;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<> d(0, std::sqrt(2.0 / prevLength));
+    biases = new double[length];
+    gradientBiases = (double *) calloc(length, sizeof(double ));
+    weights = (double **) calloc(length, sizeof(double *));
+    gradientWeight = (double **) calloc(length, sizeof(double *));
 
-    for (int i = 1; i < length; i++) {
-        biases[i] = (float) (rand()%100) / 100.0;
-        weights[i] = new float[prevLayerLength];
-        memcpy(weights[i], weights[0], prevLayerLength*sizeof(float));
+    for (int i = 0; i < length; i++) {
+        biases[i] = 0.0;
+        weights[i] = new double[prevLength];
+        gradientWeight[i] = (double *) calloc(prevLength, sizeof(double));
+        for (int j = 0; j < prevLength; j++)
+            weights[i][j] = d(gen);
     }
-    activations = new float[length];
-    if (prevActivations != nullptr) {
-        computeActivations(prevActivations, prevLayerLength);
-    }
+    activations = new double[length];
+    derivActivations = new double[length];
 }
 
 // Destructor
 Layer::~Layer() {
     if (biases) 
         delete[] biases;
+    if (gradientBiases)
+        free(gradientBiases);
     if (activations)
         delete[] activations;
+    if (derivActivations)
+        delete[] derivActivations;
     for (int i = 0; i < layerLength; i++) {
         if (weights[i])
             delete[] weights[i];
+        if (gradientWeight[i])
+            free(gradientWeight[i]);
     }
     if (weights) 
         free(weights);
+    if (gradientWeight)
+        free(gradientWeight);
 }
 
 // Copy constructor
-Layer::Layer(Layer &layer) {
-    layerLength = layer.layerLength;
-    activations = new float[layerLength];
-    activations = layer.activations;
-    biases = new float[layerLength];
-    biases = layer.biases;
-    weights = (float **) calloc(layerLength, sizeof(float *));
+Layer::Layer(const Layer &other) {
+    layerLength = other.layerLength;
+    prevLayerLength = other.prevLayerLength;
+    activations = new double[layerLength];
+    derivActivations = new double[layerLength];
+    biases = new double[layerLength];
+    gradientBiases = (double *) calloc(layerLength, sizeof(double ));
+    copy(other.activations, other.activations + layerLength, activations);
+    copy(other.biases, other.biases + layerLength, biases);
+    copy(other.gradientBiases, other.gradientBiases + layerLength, gradientBiases);
+    weights = (double **) calloc(layerLength, sizeof(double *));
+    gradientWeight = (double **) calloc(layerLength, sizeof(double *));
     for (int i = 0; i < layerLength; i++) {
-        weights[i] = new float[layerLength];
-        memcpy(weights[i], layer.weights[i], layerLength*sizeof(float));
+        gradientWeight[i] = new double[prevLayerLength];
+        weights[i] = new double[prevLayerLength];
+        copy(other.gradientWeight[i], other.gradientWeight[i] + prevLayerLength, gradientWeight[i]);
+        copy(other.weights[i], other.weights[i] + prevLayerLength, weights[i]);
     }
-}
-
-// Copy assignment operator
-Layer& Layer::operator=(const Layer& other) {
-    if (this != &other) {
-        delete[] biases;
-        delete[] activations;
-        for (int i = 0; i < layerLength; i++) {
-            delete[] weights[i];
-        }
-        biases = new float[layerLength];
-        activations = new float[layerLength];
-        copy(other.biases, other.biases + layerLength, biases);
-        copy(other.activations, other.activations + layerLength, activations);
-        // Add copy statement for weights later
-    }
-    return *this;    
 }
 
 // Move constructor
-Layer::Layer(Layer &&layer) {
-    layerLength = layer.layerLength;
-    activations = layer.activations;
-    weights = layer.weights;
-    biases = layer.biases;
+Layer::Layer(Layer &&other) {
+    layerLength = other.layerLength;
+    activations = other.activations;
+    derivActivations = other.derivActivations;
+    weights = other.weights;
+    gradientWeight = other.gradientWeight;
+    biases = other.biases;
+    gradientBiases = other.gradientBiases;
 }
 
-void Layer::computeActivations(const float *prevActivations, int prevLayerLength) {
-    double exp_sum = 0;
+Layer &Layer::operator=(Layer &layer) {
+    this->activations = layer.activations;
+    this->derivActivations = layer.derivActivations;
+    this->biases = layer.biases;
+    this->layerLength = layer.layerLength;
+    this->prevLayerLength = layer.prevLayerLength;
+    this->weights = layer.weights;
+    this->gradientWeight = layer.gradientWeight;
+    this->gradientBiases = layer.gradientBiases;
+    return *this;
+}
+
+void Layer::computeActivations(const double *prevActivations) {
+    double activation;
     for (int i = 0; i < layerLength; i++) {
-        int activation = 0;
+        activation = 0;
         for (int j = 0; j < prevLayerLength; j++) {
             activation += weights[i][j]*prevActivations[j];
         }
-        activations[i] = exp(activation + biases[i]);
-        exp_sum += activations[i];
+        // Normalize activations values using RELU function
+        activation += biases[i];
+        if (activation > 0) {
+            activations[i] = activation;
+            derivActivations[i] = 1;    
+        }
+        else {
+            activations[i] = 0;
+            derivActivations[i] = 0;
+        }
     }
+}
 
-    // Normalize activations values through soft_max
+/*
+    We consider in this implementation that, for layer L: 
+    - dC/dw_ij[L] = activation_i[L-1]*derivActivations_j[L]*dC/da_j[L]
+    Where dC/da_i[L] = sum_j(w_ij[L+1] * derivActivations_j[L+1] * dC/da_j[L+1])
+    and for the output layer, dC/da_j[L] = 2(activation_j[L] - expectedOutput[j])
+
+    (1) Therefore, in __derivCostActivations__, we'll store the part 
+        derivActivations_j[L+1]*dC/da_j[L+1]
+    to avoid recalculating it.
+*/
+void Layer::computeGradient(Layer &prevLayer, Layer &nextLayer, int expectedOutput=-1) {
     for (int i = 0; i < layerLength; i++) {
-        activations[i] = activations[i] / exp_sum;
+        double derivFactor = expectedOutput != -1 ? getCostDerivActivations_forOutputLayer(i, expectedOutput) : getCostDerivActivations(nextLayer, i);
+        double derivActivation = derivActivations[i];
+        for (int j = 0; j < prevLayer.layerLength; j++) {
+            gradientWeight[i][j] += prevLayer.activations[j]*derivActivation*derivFactor; // divide by sample number to normalize
+        }
+        gradientBiases[i] += derivActivation*derivFactor;
+        derivActivations[i] *= derivFactor; // This multiplication to avoid redundancy for upcoming layers, see (1)
+    }
+}
+
+double Layer::getCostDerivActivations(Layer &nextLayer, int i) {
+    double sum = 0;
+    double **nextWeights = nextLayer.weights;
+    double *nextDerivActivations = nextLayer.derivActivations;
+    for (int j = 0; j < nextLayer.layerLength; j++) {
+        sum += nextWeights[j][i]*nextDerivActivations[j];
+    }
+    return sum;
+}
+
+double Layer::getCostDerivActivations_forOutputLayer(int i, int expectedOutput) {
+    double sum = 0;
+    double expectedActivations[OUTPUT_LAYER_LENGTH] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    expectedActivations[expectedOutput] = 1;
+    for (int j = 0; j < OUTPUT_LAYER_LENGTH; j++) {
+        sum += 2*(activations[j] - expectedActivations[j]);
+    }
+    return sum;
+}
+
+
+void Layer::updateWeightsBiases(int batchSize) {
+    for (int i = 0; i < layerLength; i++) {
+        for (int j = 0; j < prevLayerLength; j++) {
+            weights[i][j] -= LEARNING_RATE*(gradientWeight[i][j] / (double) batchSize);
+            // if (gradientWeight[i][j] != 0 && prevLayerLength > 700) cout << " changement : " << gradientWeight[i][j] << endl;
+            gradientWeight[i][j] = 0;
+        }
+        biases[i] -= LEARNING_RATE*(gradientBiases[i] / (double) batchSize);
+        gradientBiases[i] = 0;
     }
 }
