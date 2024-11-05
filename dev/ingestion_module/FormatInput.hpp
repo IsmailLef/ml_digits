@@ -7,12 +7,9 @@ using namespace std;
 
 const int TOTAL_PIXELS = 784;
 const int ROW_PIXELS = 28;
-const int OUTPUT_LAYER = 10;
-const int DATA_LIMIT = 10000;
+const int OUTPUT_LAYER_LENGTH = 10;
+const int DATA_LIMIT = 40000;
+const int BATCH_SIZE = 1000;
 
-struct dataUnit {
-    int label;
-    float *inputArray;
-};
 
-int formatInput(string fileName, float *inputLayer[DATA_LIMIT]);
+int formatInput(string fileName, double *inputLayer[DATA_LIMIT]);
